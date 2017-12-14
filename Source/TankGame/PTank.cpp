@@ -43,12 +43,15 @@ APTank::APTank()
 
 	RootComponent = TankBase;
 
+	TankTurret = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("TankTurret"));
+	TankTurret->SetupAttachment(RootComponent);
+
 	//Create A Camera Boom (Pulls In Towards The Player If There Is A Collision)
 	CameraBoom = CreateDefaultSubobject<USpringArmComponent>(TEXT("CameraBoom"));
-	CameraBoom->SetupAttachment(RootComponent);
+	CameraBoom->SetupAttachment(TankTurret);
 	CameraBoom->TargetArmLength = 600.0f;
 	CameraBoom->SetRelativeLocation(FVector(0, 0, 80));
-	CameraBoom->bUsePawnControlRotation = true;
+	CameraBoom->bUsePawnControlRotation = false;
 
 	//Create a follow camera
 	FollowCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("FollowCamera"));
@@ -130,21 +133,15 @@ void APTank::PostInitializeComponents()
 
 	CalculateMomentOfInertia();
 
-	//InitWheels();
-	InitTrackSpline();
-	//CreateTrackSpline();
+	InitWheels();
 }
-
-//void APTank::BeginPlay()
-//{
-//	InitTrackSpline();
-//	CreateTrackSpline();
-//}
 
 void APTank::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
 	
+	SetTurretRotation();
+
 	CalculateThrottle();
 	CalculateWheelVelocity();
 	CalculateEngineAndDrive();
@@ -154,8 +151,8 @@ void APTank::Tick(float DeltaTime)
 	for (int32 b = 0; b < SuspensionComponents_Right.Num(); b++) { CalculateSuspension(SuspensionComponents_Right[b]); }
 
 	//Left - Right Wheel Function Call
-	//for (int32 b = 0; b < WheelComponents_Left.Num(); b++) { SetWheelPosittion(b, WheelComponents_Left[b], true); }
-	//for (int32 b = 0; b < WheelComponents_Right.Num(); b++) { SetWheelPosittion(b, WheelComponents_Right[b], false); }
+	for (int32 b = 0; b < WheelComponents_Left.Num(); b++) { SetWheelPosittion(b, WheelComponents_Left[b], true); }
+	for (int32 b = 0; b < WheelComponents_Right.Num(); b++) { SetWheelPosittion(b, WheelComponents_Right[b], false); }
 
 	FVector2D Left = ApplyDriveForceAndFriction(SuspensionComponents_Left, DriveForce_Left, TrackLinearVelocity_Left);
 	TrackFrictionTorque_Left = Left.X;
@@ -163,7 +160,7 @@ void APTank::Tick(float DeltaTime)
 
 	FVector2D Right = ApplyDriveForceAndFriction(SuspensionComponents_Right, DriveForce_Right, TrackLinearVelocity_Right);
 	TrackFrictionTorque_Right = Right.X;
-	TrackRollingFrictionTorque_Right = Right.Y;
+	TrackRollingFrictionTorque_Right = Right.X;
 }
 
 void APTank::CalculateSuspension(class UPWheelComponent* Suspension)
@@ -279,14 +276,17 @@ void APTank::SetWheelPosittion(int32 Index, class UStaticMeshComponent* WheelCom
 	{
 		FVector WheelTransform = UKismetMathLibrary::TransformLocation(SuspensionComponents_Left[Index]->GetRelativeTransform(), FVector(0, 0, SuspensionComponents_Left[Index]->S_PreviousLength * -1));
 		FVector WheelLocation = UKismetMathLibrary::TransformLocation(GetActorTransform(), WheelTransform);
-		WheelComp->SetWorldLocationAndRotation(WheelLocation, GetActorRotation());
+		WheelComp->SetWorldLocation(WheelLocation);
+		WheelComp->AddLocalRotation(FRotator((UKismetMathLibrary::RadiansToDegrees(TrackAngularVelocity_Left) * GetWorld()->DeltaTimeSeconds) * -1, 0, 0));
 	}
 	
 	if (!IsLeft)
 	{
 		FVector WheelTransform = UKismetMathLibrary::TransformLocation(SuspensionComponents_Right[Index]->GetRelativeTransform(), FVector(0, 0, SuspensionComponents_Right[Index]->S_PreviousLength * -1));
 		FVector WheelLocation = UKismetMathLibrary::TransformLocation(GetActorTransform(), WheelTransform);
-		WheelComp->SetWorldLocationAndRotation(WheelLocation, GetActorRotation());
+		WheelComp->SetWorldLocation(WheelLocation);
+
+		WheelComp->AddLocalRotation(FRotator((UKismetMathLibrary::RadiansToDegrees(TrackAngularVelocity_Right) * GetWorld()->DeltaTimeSeconds) * -1, 0, 0));
 	}
 }
 
@@ -373,8 +373,29 @@ void APTank::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
 }
 
 //Camera Left/Right && Up/Down
-void APTank::TurnAtRate(float Rate) { AddControllerYawInput(Rate * BaseTurnRate * GetWorld()->GetDeltaSeconds()); }
+void APTank::TurnAtRate(float Rate) 
+{ 
+	AddControllerYawInput(Rate * BaseTurnRate * GetWorld()->GetDeltaSeconds()); 
+	//TankTurret->AddLocalRotation(FRotator(0, Rate * BaseTurnRate * GetWorld()->GetDeltaSeconds(), 0));
+}
 void APTank::LookUpAtRate(float Rate) { AddControllerPitchInput(Rate * BaseLookUpRate * GetWorld()->GetDeltaSeconds()); }
+
+void APTank::SetTurretRotation()
+{
+	float CurrentYawRoation = GetControlRotation().Yaw - 90;
+
+	float TurretYawRotation = TankTurret->RelativeRotation.Yaw;
+
+	float CalculatedYaw = FMath::FInterpTo(TurretYawRotation, CurrentYawRoation, GetWorld()->DeltaTimeSeconds, 1);
+
+	FRotator NewRotation = FRotator(TankTurret->RelativeRotation.Pitch, CurrentYawRoation, TankTurret->RelativeRotation.Roll);
+
+	//FMath::FInterpTo(TurretYawRotation, CurrentYawRoation, GetWorld()->DeltaTimeSeconds)
+
+	//UE_LOG(LogTemp, Warning, TEXT("Controller: %f Tank: %f"), CurrentYawRoation, TurretYawRotation);
+
+	//TankTurret->SetRelativeRotation(NewRotation);
+}
 
 void APTank::MoveForward(float AxisValue)
 {
@@ -397,13 +418,20 @@ void APTank::MoveRight(float AxisValue)
 {
 	if (abs(AxisValue * 1) < 0)
 	{
-		WheelCoefficient_Left = -1 * AxisValue;
-		WheelCoefficient_Right = 1 * AxisValue;
+		WheelCoefficient_Left = -2.0 * AxisValue;
+		WheelCoefficient_Right = 2.0 * AxisValue;
+		WheelCoefficient_Forward = 0;
+	}
+	else if (abs(AxisValue * 1) > 0)
+	{
+		WheelCoefficient_Left = 2.0 * AxisValue;
+		WheelCoefficient_Right = -2.0 * AxisValue;
+		WheelCoefficient_Forward = 0;
 	}
 	else
 	{
-		WheelCoefficient_Left = 1 * AxisValue;
-		WheelCoefficient_Right = -1 * AxisValue;
+		WheelCoefficient_Left = AxisValue;
+		WheelCoefficient_Right = AxisValue;
 	}
 }
 
@@ -421,8 +449,8 @@ void APTank::CalculateMomentOfInertia()
 //Main Function
 void APTank::CalculateThrottle()
 {
-	TrackTorqueTransfer_Left = FMath::Clamp(WheelCoefficient_Left + WheelCoefficient_Forward, -1.0f, 2.0f);
-	TrackTorqueTransfer_Right = FMath::Clamp(WheelCoefficient_Right + WheelCoefficient_Forward, -1.0f, 2.0f);
+	TrackTorqueTransfer_Left = FMath::Clamp(WheelCoefficient_Left + WheelCoefficient_Forward, -2.0f, 2.0f);
+	TrackTorqueTransfer_Right = FMath::Clamp(WheelCoefficient_Right + WheelCoefficient_Forward, -2.0f, 2.0f);
 
 	if (UKismetMathLibrary::Max(abs(TrackTorqueTransfer_Left), abs(TrackTorqueTransfer_Right)) != 0)
 	{
@@ -446,8 +474,10 @@ void APTank::CalculateWheelVelocity()
 	//TrackAngularVelocity_Left = ApplyBrake(((TrackTorque_Left / MomentInertia) * GetWorld()->DeltaTimeSeconds) + TrackAngularVelocity_Left, BreakRatio_Left);
 	//TrackAngularVelocity_Right = ApplyBrake(((TrackTorque_Right / MomentInertia) * GetWorld()->DeltaTimeSeconds) + TrackAngularVelocity_Right, BreakRatio_Right);
 
-	float LeftInVelocity = ((TrackTorque_Left / MomentInertia) * GetWorld()->DeltaTimeSeconds) + TrackAngularVelocity_Left;
-	float RightInVelocity = ((TrackTorque_Right / MomentInertia) * GetWorld()->DeltaTimeSeconds) + TrackAngularVelocity_Right;
+	float LeftInVelocity = FMath::Clamp(((TrackTorque_Left / MomentInertia) * GetWorld()->DeltaTimeSeconds) + TrackAngularVelocity_Left, -EngineSpeedLimit, EngineSpeedLimit);
+	float RightInVelocity = FMath::Clamp(((TrackTorque_Right / MomentInertia) * GetWorld()->DeltaTimeSeconds) + TrackAngularVelocity_Right, -EngineSpeedLimit, EngineSpeedLimit);
+
+	UE_LOG(LogTemp, Warning, TEXT("TestLeft: %f TestRight: %f"), LeftInVelocity, RightInVelocity);
 	
 	ApplyBrake(LeftInVelocity, BreakRatio_Left, TrackAngularVelocity_Left);
 	ApplyBrake(RightInVelocity, BreakRatio_Right, TrackAngularVelocity_Right);
@@ -456,8 +486,9 @@ void APTank::CalculateWheelVelocity()
 	TrackLinearVelocity_Right = TrackAngularVelocity_Right * SprocketRadius_CM;
 
 	UE_LOG(LogTemp, Warning, TEXT("Left: %f Right: %f"), TrackLinearVelocity_Left, TrackLinearVelocity_Right);
-}
 
+}
+	//BROKEN FUNCTION
 	float APTank::ApplyBrake(float AngVelIn, float BrakeRatio)
 	{
 		float NewVelocity = 0.0f;
@@ -489,10 +520,10 @@ void APTank::CalculateEngineAndDrive()
 	DriveForce_Right = ForwardVector(GetActorRotation()) * (DriveTorque_Right / SprocketRadius_CM);
 }
 
-float APTank::GetEngimeTorque(float RPM)
-{
-	return RPM * 100;
-}
+	float APTank::GetEngimeTorque(float RPM)
+	{
+		return RPM * 100;
+	}
 
 FVector2D APTank::ApplyDriveForceAndFriction(TArray<class UPWheelComponent*> SusComponent, FVector DriveForce, float TrackLinearVelocity)
 {
@@ -628,26 +659,6 @@ FVector2D APTank::ApplyDriveForceAndFriction(TArray<class UPWheelComponent*> Sus
 
 		return (vVectorA * MuX) + (vVectorB * MuY);
 	}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 //Math Functions
 

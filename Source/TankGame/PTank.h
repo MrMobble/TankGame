@@ -40,6 +40,9 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
 	class UStaticMeshComponent* TankBase;
 
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	class UStaticMeshComponent* TankTurret;
+
 	//CameraBoom
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
 	class USpringArmComponent* CameraBoom;
@@ -150,6 +153,8 @@ private:
 	void MoveForward(float AxisValue);
 	void MoveRight(float AxisValue);
 
+	void SetTurretRotation();
+
 public:	
 
 	// Called every frame
@@ -173,6 +178,10 @@ public:
 	//This is a set value instead of a toque curve becuase I want a more arcade style of driving.
 	UPROPERTY(EditAnywhere, Category = "ENGINE VALUES")
 		float EnginePowerRatio;
+
+	//This is a set value instead of a toque curve becuase I want a more arcade style of driving.
+	UPROPERTY(EditAnywhere, Category = "ENGINE VALUES")
+		float EngineSpeedLimit;
 
 	UPROPERTY(EditAnywhere, Category = "ENGINE VALUES")
 		float SprocketRadius_CM;
@@ -214,7 +223,10 @@ public:
 	float BreakRatio_Left;
 	float BreakRatio_Right;
 
+	UPROPERTY(BlueprintReadOnly)
 	float TrackTorqueTransfer_Left;
+
+	UPROPERTY(BlueprintReadOnly)
 	float TrackTorqueTransfer_Right;
 
 	//This will always be either 1 or 0;
