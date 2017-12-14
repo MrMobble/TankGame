@@ -15,6 +15,7 @@
 #include "Components/SplineComponent.h"
 #include "Components/InstancedStaticMeshComponent.h"
 #include "DrawDebugHelpers.h"
+#include "Components/BoxComponent.h"
 
 //Class Includes
 #include "PWheelComponent.h"
@@ -42,6 +43,11 @@ APTank::APTank()
 	TankBase->SetMassOverrideInKg(NAME_None, 10400.0f, true);
 
 	RootComponent = TankBase;
+
+	BoxCollider = CreateDefaultSubobject<UBoxComponent>(TEXT("BoxCollider"));
+	BoxCollider->SetupAttachment(RootComponent);
+	BoxCollider->SetRelativeScale3D(FVector(6.5, 2.5, 0.75));
+	BoxCollider->SetRelativeLocation(FVector(-50, 0, 65));
 
 	TankTurret = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("TankTurret"));
 	TankTurret->SetupAttachment(RootComponent);

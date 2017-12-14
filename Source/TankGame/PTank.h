@@ -36,12 +36,16 @@ public:
 
 public:
 
-	//CameraBoom
+	//TankBase
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
 	class UStaticMeshComponent* TankBase;
 
+	//TankTurret
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
 	class UStaticMeshComponent* TankTurret;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	class UBoxComponent* BoxCollider;
 
 	//CameraBoom
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
