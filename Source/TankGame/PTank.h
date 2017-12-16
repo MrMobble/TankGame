@@ -55,6 +55,8 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
 	class UCameraComponent* FollowCamera;
 
+
+
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Left Suspension Components
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -76,6 +78,15 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "LeftSuspension")
 	class UPWheelComponent* LS_Five;
 
+	//Sproket Components
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Sprokets")
+	class UStaticMeshComponent* LS_SproketFront;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Sprokets")
+	class UStaticMeshComponent* LS_SproketBack;
+
+
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Right Suspension Components
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -96,6 +107,14 @@ public:
 	
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "RightSuspension")
 	class UPWheelComponent* RS_Five;
+
+	//Sproket Components
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Sprokets")
+	class UStaticMeshComponent* RS_SproketFront;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Sprokets")
+	class UStaticMeshComponent* RS_SproketBack;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Suspension Variables / Functions
@@ -128,29 +147,39 @@ public:
 
 public:
 
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "TrackMesh")
-	class UInstancedStaticMeshComponent* LeftTrackMesh;
-
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "TrackMesh")
-	class UInstancedStaticMeshComponent* RightTrackMesh;
-
 	UPROPERTY(EditAnywhere, Category = "TRACK SETTINGS")
 	int32 NumberOfTreads;
 
 	int32 SplineLastIndex;
 
-	UFUNCTION(BlueprintCallable, Category = "InitFunction")
 	void CreateTrackSpline();
-
 	void InitTrackSpline();
 
-private:
+	void SetSplineControlPoints(int32 Index, class UPSplineComponent* Spline, class UStaticMeshComponent* WheelComp);
+	void UpdateTrackMesh();
 
+	float TreadMeshOffset_Left;
+	float TreadMeshOffset_Right;
+
+	//Internal Variables
 	class UPSplineComponent* LeftTrackSpline;
 	class UPSplineComponent* RightTrackSpline;
 
+	//Imternal Varibles
+	class UPSplineMeshComponent* LeftTrackMesh;
+	class UPSplineMeshComponent* RightTrackMesh;
+
 	UPROPERTY(EditAnywhere, Category = "TRACK SETTINGS")
 	TArray<int32> SplineIndex;
+
+	UPROPERTY(EditAnywhere, Category = "TRACK SETTINGS")
+	float WheelRadius;
+
+	UPROPERTY(EditAnywhere, Category = "TRACK SETTINGS")
+	float TrackHalfHeight;
+
+	UPROPERTY(EditAnywhere, Category = "TRACK SETTINGS")
+	float SproketSpeed;
 
 private:
 
@@ -167,7 +196,7 @@ public:
 	// Called to bind functionality to input
 	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
 
-	//virtual void BeginPlay();
+	//virtual void BeginPlay() override;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// ENGINE Variables / Functions
@@ -214,6 +243,12 @@ public:
 	UPROPERTY(EditAnywhere, Category = "ENGINE VALUES")
 		float VehicleMassOverRide;
 
+	UPROPERTY(EditAnywhere, Category = "ENGINE VALUES")
+		bool UseThrottle;
+
+	UPROPERTY(EditAnywhere, Category = "ENGINE VALUES")
+		float ThrottleIncrement;
+
 	// Internal Varibles
 
 public:
@@ -234,6 +269,7 @@ public:
 	float TrackTorqueTransfer_Right;
 
 	//This will always be either 1 or 0;
+	UPROPERTY(BlueprintReadOnly)
 	float Throttle;
 
 	float DriveTorque_Left;

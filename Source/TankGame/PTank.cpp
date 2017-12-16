@@ -12,14 +12,14 @@
 #include "Math/Quat.h"
 #include "Kismet/KismetSystemLibrary.h"
 #include "Math/UnrealMathUtility.h"
-#include "Components/SplineComponent.h"
-#include "Components/InstancedStaticMeshComponent.h"
 #include "DrawDebugHelpers.h"
 #include "Components/BoxComponent.h"
+#include "Components/SplineComponent.h"
 
 //Class Includes
 #include "PWheelComponent.h"
 #include "PSplineComponent.h"
+#include "PSplineMeshComponent.h"
 
 
 // Sets default values
@@ -32,23 +32,19 @@ APTank::APTank()
 	BaseTurnRate = 45.f;
 	BaseLookUpRate = 45.f;
 
-	SplineLastIndex = 0.0f;
-
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Base Tank Components
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+	//Create RootComponent aka TankBase
 	TankBase = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("TankBase"));
 	TankBase->SetSimulatePhysics(true);
 	TankBase->SetMassOverrideInKg(NAME_None, 10400.0f, true);
 
+	//Set The Root Component
 	RootComponent = TankBase;
 
-	BoxCollider = CreateDefaultSubobject<UBoxComponent>(TEXT("BoxCollider"));
-	BoxCollider->SetupAttachment(RootComponent);
-	BoxCollider->SetRelativeScale3D(FVector(6.5, 2.5, 0.75));
-	BoxCollider->SetRelativeLocation(FVector(-50, 0, 65));
-
+	//Create The Tank Turret
 	TankTurret = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("TankTurret"));
 	TankTurret->SetupAttachment(RootComponent);
 
@@ -63,6 +59,11 @@ APTank::APTank()
 	FollowCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("FollowCamera"));
 	FollowCamera->SetupAttachment(CameraBoom, USpringArmComponent::SocketName);
 	FollowCamera->bUsePawnControlRotation = false;
+
+	BoxCollider = CreateDefaultSubobject<UBoxComponent>(TEXT("BoxCollider"));
+	BoxCollider->SetupAttachment(RootComponent);
+	BoxCollider->SetRelativeScale3D(FVector(6.5, 2.5, 0.75));
+	BoxCollider->SetRelativeLocation(FVector(-50, 0, 65));
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Left Suspension Components
@@ -93,6 +94,17 @@ APTank::APTank()
 	LS_Five->SetupAttachment(RootComponent);
 	SuspensionComponents_Left.Add(LS_Five);
 
+	//Sproket Components
+
+	LS_SproketFront = CreateDefaultSubobject<class UStaticMeshComponent>(TEXT("LS_SproketFront"));
+	LS_SproketFront->SetRelativeLocation(FVector(117, -75, 42));
+	LS_SproketFront->SetupAttachment(RootComponent);
+
+	LS_SproketBack = CreateDefaultSubobject<class UStaticMeshComponent>(TEXT("LS_SproketBack"));
+	LS_SproketBack->SetRelativeLocation(FVector(-215, -75, 43));
+	LS_SproketBack->SetupAttachment(RootComponent);
+
+
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Right Suspension Components
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -122,15 +134,15 @@ APTank::APTank()
 	RS_Five->SetupAttachment(RootComponent);
 	SuspensionComponents_Right.Add(RS_Five);
 
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// TrackMesh
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	//Sproket Components
 
-	LeftTrackMesh = CreateDefaultSubobject<class UInstancedStaticMeshComponent>(TEXT("LT_Mesh"));
-	LeftTrackMesh->SetupAttachment(RootComponent);
+	RS_SproketFront = CreateDefaultSubobject<class UStaticMeshComponent>(TEXT("RS_SproketFront"));
+	RS_SproketFront->SetRelativeLocation(FVector(117, 75, 42));
+	RS_SproketFront->SetupAttachment(RootComponent);
 
-	RightTrackMesh = CreateDefaultSubobject<class UInstancedStaticMeshComponent>(TEXT("RT_Mesh"));
-	RightTrackMesh->SetupAttachment(RootComponent);
+	RS_SproketBack = CreateDefaultSubobject<class UStaticMeshComponent>(TEXT("RS_SproketBack"));
+	RS_SproketBack->SetRelativeLocation(FVector(-215, 75, 43));
+	RS_SproketBack->SetupAttachment(RootComponent);
 }
 
 void APTank::PostInitializeComponents()
@@ -140,6 +152,8 @@ void APTank::PostInitializeComponents()
 	CalculateMomentOfInertia();
 
 	InitWheels();
+	InitTrackSpline();
+	CreateTrackSpline();
 }
 
 void APTank::Tick(float DeltaTime)
@@ -159,6 +173,11 @@ void APTank::Tick(float DeltaTime)
 	//Left - Right Wheel Function Call
 	for (int32 b = 0; b < WheelComponents_Left.Num(); b++) { SetWheelPosittion(b, WheelComponents_Left[b], true); }
 	for (int32 b = 0; b < WheelComponents_Right.Num(); b++) { SetWheelPosittion(b, WheelComponents_Right[b], false); }
+
+	for (int32 Index = 0; Index < WheelComponents_Left.Num(); Index++) { SetSplineControlPoints(Index, LeftTrackSpline, WheelComponents_Left[Index]); }
+	for (int32 Index = 0; Index < WheelComponents_Right.Num(); Index++) { SetSplineControlPoints(Index, RightTrackSpline, WheelComponents_Right[Index]); }
+
+	UpdateTrackMesh();
 
 	FVector2D Left = ApplyDriveForceAndFriction(SuspensionComponents_Left, DriveForce_Left, TrackLinearVelocity_Left);
 	TrackFrictionTorque_Left = Left.X;
@@ -280,10 +299,13 @@ void APTank::SetWheelPosittion(int32 Index, class UStaticMeshComponent* WheelCom
 
 	if (IsLeft)
 	{
-		FVector WheelTransform = UKismetMathLibrary::TransformLocation(SuspensionComponents_Left[Index]->GetRelativeTransform(), FVector(0, 0, SuspensionComponents_Left[Index]->S_PreviousLength * -1));
+		FVector WheelTransform = UKismetMathLibrary::TransformLocation(SuspensionComponents_Left[Index]->GetRelativeTransform(), FVector(0, 0, SuspensionComponents_Left[Index]->S_PreviousLength * -1) + 2);
 		FVector WheelLocation = UKismetMathLibrary::TransformLocation(GetActorTransform(), WheelTransform);
 		WheelComp->SetWorldLocation(WheelLocation);
 		WheelComp->AddLocalRotation(FRotator((UKismetMathLibrary::RadiansToDegrees(TrackAngularVelocity_Left) * GetWorld()->DeltaTimeSeconds) * -1, 0, 0));
+
+		LS_SproketFront->AddLocalRotation(FRotator((UKismetMathLibrary::RadiansToDegrees(TrackAngularVelocity_Left / SproketSpeed) * GetWorld()->DeltaTimeSeconds) * -1, 0, 0));
+		LS_SproketBack->AddLocalRotation(FRotator((UKismetMathLibrary::RadiansToDegrees(TrackAngularVelocity_Left / SproketSpeed) * GetWorld()->DeltaTimeSeconds) * -1, 0, 0));
 	}
 	
 	if (!IsLeft)
@@ -291,62 +313,66 @@ void APTank::SetWheelPosittion(int32 Index, class UStaticMeshComponent* WheelCom
 		FVector WheelTransform = UKismetMathLibrary::TransformLocation(SuspensionComponents_Right[Index]->GetRelativeTransform(), FVector(0, 0, SuspensionComponents_Right[Index]->S_PreviousLength * -1));
 		FVector WheelLocation = UKismetMathLibrary::TransformLocation(GetActorTransform(), WheelTransform);
 		WheelComp->SetWorldLocation(WheelLocation);
-
 		WheelComp->AddLocalRotation(FRotator((UKismetMathLibrary::RadiansToDegrees(TrackAngularVelocity_Right) * GetWorld()->DeltaTimeSeconds) * -1, 0, 0));
+
+		RS_SproketFront->AddLocalRotation(FRotator((UKismetMathLibrary::RadiansToDegrees(TrackAngularVelocity_Right / SproketSpeed) * GetWorld()->DeltaTimeSeconds) * -1, 0, 0));
+		RS_SproketBack->AddLocalRotation(FRotator((UKismetMathLibrary::RadiansToDegrees(TrackAngularVelocity_Right / SproketSpeed) * GetWorld()->DeltaTimeSeconds) * -1, 0, 0));
 	}
 }
 
 void APTank::CreateTrackSpline()
 {
-	InitTrackSpline();
-
 	//Left Spline
-	for (int32 b = 0; b < SplineLastIndex; b++)
+	if (LeftTrackSpline && LeftTrackMesh)
 	{
-		if (LeftTrackSpline)
+		for (int32 Index = 0; Index < NumberOfTreads; Index++)
 		{
-			float DistanceAlongSpline = (LeftTrackSpline->GetSplineLength() / (NumberOfTreads - 1)) * b;
+			float DistanceAlongSpline = Index * (LeftTrackSpline->GetSplineLength() / NumberOfTreads);
 
-			FVector SplineLocation = LeftTrackSpline->GetLocationAtDistanceAlongSpline(DistanceAlongSpline, ESplineCoordinateSpace::Local);
+			FVector Location = LeftTrackSpline->GetLocationAtDistanceAlongSpline(DistanceAlongSpline, ESplineCoordinateSpace::Local);
+			FRotator Rotation = LeftTrackSpline->GetRotationAtDistanceAlongSpline(DistanceAlongSpline, ESplineCoordinateSpace::Local);
+			FVector RightVector = LeftTrackSpline->GetRightVectorAtDistanceAlongSpline(DistanceAlongSpline, ESplineCoordinateSpace::Local);
 
-			FRotator SplineRotation = LeftTrackSpline->GetRotationAtDistanceAlongSpline(DistanceAlongSpline, ESplineCoordinateSpace::Local);
+			FRotator FinalRotation = UKismetMathLibrary::SelectRotator(
+				UKismetMathLibrary::MakeRotator(180, Rotation.Pitch, Rotation.Yaw),
+				UKismetMathLibrary::MakeRotator(Rotation.Roll, Rotation.Pitch, Rotation.Yaw),
+				RightVector.Y < 0);
 
-			FVector SplineRightVector = LeftTrackSpline->GetRightVectorAtDistanceAlongSpline(DistanceAlongSpline, ESplineCoordinateSpace::Local);
-
-			FRotator FinalRotation;
-			if (SplineRightVector.Y < 0) { FinalRotation = UKismetMathLibrary::MakeRotator(180, SplineRotation.Pitch, SplineRotation.Yaw); }
-			else { FinalRotation = UKismetMathLibrary::MakeRotator(SplineRotation.Roll, SplineRotation.Pitch, SplineRotation.Yaw); }
-
-			FTransform FinalTransform = UKismetMathLibrary::MakeTransform(SplineLocation, FinalRotation, FVector(1));
+			FTransform FinalTransform = UKismetMathLibrary::MakeTransform(Location, FinalRotation, FVector(1, 1, 1));
 			LeftTrackMesh->AddInstance(FinalTransform);
+
 		}
 	}
 
 	//Right Spline
-	for (int32 b = 0; b < SplineLastIndex; b++)
+	if (RightTrackSpline && RightTrackMesh)
 	{
-		if (RightTrackSpline)
+		for (int32 Index = 0; Index < NumberOfTreads; Index++)
 		{
-			float DistanceAlongSpline = (RightTrackSpline->GetSplineLength() / (NumberOfTreads - 1)) * b;
+			float DistanceAlongSpline = Index * (RightTrackSpline->GetSplineLength() / NumberOfTreads);
 
 			FVector Location = RightTrackSpline->GetLocationAtDistanceAlongSpline(DistanceAlongSpline, ESplineCoordinateSpace::Local);
 			FRotator Rotation = RightTrackSpline->GetRotationAtDistanceAlongSpline(DistanceAlongSpline, ESplineCoordinateSpace::Local);
 			FVector RightVector = RightTrackSpline->GetRightVectorAtDistanceAlongSpline(DistanceAlongSpline, ESplineCoordinateSpace::Local);
 
-			FRotator FinalRotation;
-			if (RightVector.Y <= 0) { FinalRotation = UKismetMathLibrary::MakeRotator(180, Rotation.Pitch, Rotation.Yaw); }
-			else { FinalRotation = UKismetMathLibrary::MakeRotator(Rotation.Roll, Rotation.Pitch, Rotation.Yaw); }
+			FRotator FinalRotation = UKismetMathLibrary::SelectRotator(
+				UKismetMathLibrary::MakeRotator(180, Rotation.Pitch, Rotation.Yaw), 
+				UKismetMathLibrary::MakeRotator(Rotation.Roll, Rotation.Pitch, Rotation.Yaw), 
+				RightVector.Y < 0);
 
-			FTransform FinalTransform = UKismetMathLibrary::MakeTransform(Location, FinalRotation, FVector(1));
+			FTransform FinalTransform = UKismetMathLibrary::MakeTransform(Location, FinalRotation, FVector(1, 1, 1));
 			RightTrackMesh->AddInstance(FinalTransform);
+
 		}
 	}
 }
 
 void APTank::InitTrackSpline()
 {
-	//Set Up SplineLastIndex - 1
-	SplineLastIndex = NumberOfTreads - 1;
+
+	/////////////////////////////////////////////////////////////////////////
+	// Get Spline Components
+	////////////////////////////////////////////////////////////////////////
 
 	//Get All The Custom SplineComponents
 	TArray<class UPSplineComponent*> SplineComponents;
@@ -357,6 +383,79 @@ void APTank::InitTrackSpline()
 	{
 		if (SplineComponents[b]->IsLeft) { LeftTrackSpline = SplineComponents[b]; }
 		else if (!SplineComponents[b]->IsLeft) { RightTrackSpline = SplineComponents[b]; }
+	}
+	/////////////////////////////////////////////////////////////////////////
+
+	/////////////////////////////////////////////////////////////////////////
+	// Get Spline Mesh Components
+	////////////////////////////////////////////////////////////////////////
+
+	//Get All The Custom SplineMeshComponents
+	TArray<class UPSplineMeshComponent*> MeshComponents;
+	GetComponents<class UPSplineMeshComponent>(MeshComponents);
+
+	//Decide Which Component Is The Left Or Right Spline
+	for (int32 b = 0; b < MeshComponents.Num(); b++)
+	{
+		if (MeshComponents[b]->IsLeft) { LeftTrackMesh = MeshComponents[b]; }
+		else if (!MeshComponents[b]->IsLeft) { RightTrackMesh = MeshComponents[b]; }
+	}
+	/////////////////////////////////////////////////////////////////////////
+}
+
+void APTank::SetSplineControlPoints(int32 Index, class UPSplineComponent* Spline, class UStaticMeshComponent* WheelComp)
+{
+	//Use The Splines X and Y They Dont Need To Change
+	float PointX = Spline->GetLocationAtSplinePoint(SplineIndex[Index], ESplineCoordinateSpace::Local).X;
+	float PointY = Spline->GetLocationAtSplinePoint(SplineIndex[Index], ESplineCoordinateSpace::Local).Y;
+
+	//Wheel Z Location - The Wheel Size - Half The Height Of The Track
+	float PointZ = (WheelComp->GetRelativeTransform().GetLocation().Z - WheelRadius) - TrackHalfHeight;
+	
+	//Set The SplinePoint To Location (This does not update the mesh based on the spline just the spline)
+	Spline->SetLocationAtSplinePoint(SplineIndex[Index], FVector(PointX, PointY, PointZ), ESplineCoordinateSpace::Local, true);
+}
+
+void APTank::UpdateTrackMesh()
+{
+	TreadMeshOffset_Left = remainder(TreadMeshOffset_Left + (-TrackLinearVelocity_Left * GetWorld()->DeltaTimeSeconds), LeftTrackSpline->GetSplineLength());
+
+	for (int32 Index = 0; Index < NumberOfTreads; Index++)
+	{
+		float Remainder = remainder(((LeftTrackSpline->GetSplineLength() / NumberOfTreads) * Index) + TreadMeshOffset_Left, LeftTrackSpline->GetSplineLength());
+
+		float Distance = UKismetMathLibrary::SelectFloat(Remainder + LeftTrackSpline->GetSplineLength(), Remainder, Remainder < 0);
+
+
+		FVector Location = LeftTrackSpline->GetLocationAtDistanceAlongSpline(Distance, ESplineCoordinateSpace::Local);
+		FRotator Rotation = LeftTrackSpline->GetRotationAtDistanceAlongSpline(Distance, ESplineCoordinateSpace::Local);
+		FVector RightVector = LeftTrackSpline->GetRightVectorAtDistanceAlongSpline(Distance, ESplineCoordinateSpace::Local);
+
+		float SelectFloat = UKismetMathLibrary::SelectFloat(180, 0, RightVector.Y < 0);
+		FRotator FinalRotation = UKismetMathLibrary::MakeRotator(Rotation.Roll + SelectFloat, Rotation.Pitch, Rotation.Yaw);
+
+		FTransform FinalTransform = UKismetMathLibrary::MakeTransform(Location, FinalRotation, FVector(1.0f, 1.0f, 1.0f));
+		LeftTrackMesh->UpdateInstanceTransform(Index, FinalTransform, false, NumberOfTreads == NumberOfTreads);
+	}
+
+	TreadMeshOffset_Right = remainder(TreadMeshOffset_Right + (-TrackLinearVelocity_Right * GetWorld()->DeltaTimeSeconds), RightTrackSpline->GetSplineLength());
+
+	for (int32 Index = 0; Index < NumberOfTreads; Index++)
+	{
+		float Remainder = remainder(((RightTrackSpline->GetSplineLength() / NumberOfTreads) * Index) + TreadMeshOffset_Right, RightTrackSpline->GetSplineLength());
+
+		float Distance = UKismetMathLibrary::SelectFloat(Remainder + RightTrackSpline->GetSplineLength(), Remainder, Remainder < 0);
+
+
+		FVector Location = RightTrackSpline->GetLocationAtDistanceAlongSpline(Distance, ESplineCoordinateSpace::Local);
+		FRotator Rotation = RightTrackSpline->GetRotationAtDistanceAlongSpline(Distance, ESplineCoordinateSpace::Local);
+		FVector RightVector = RightTrackSpline->GetRightVectorAtDistanceAlongSpline(Distance, ESplineCoordinateSpace::Local);
+
+		float SelectFloat = UKismetMathLibrary::SelectFloat(180, 0, RightVector.Y < 0);
+		FRotator FinalRotation = UKismetMathLibrary::MakeRotator(Rotation.Roll + SelectFloat, Rotation.Pitch, Rotation.Yaw);
+
+		FTransform FinalTransform = UKismetMathLibrary::MakeTransform(Location, FinalRotation, FVector(1.0f, 1.0f, 1.0f));
+		RightTrackMesh->UpdateInstanceTransform(Index, FinalTransform, false, NumberOfTreads == NumberOfTreads);
 	}
 }
 
@@ -396,28 +495,15 @@ void APTank::SetTurretRotation()
 
 	FRotator NewRotation = FRotator(TankTurret->RelativeRotation.Pitch, CurrentYawRoation, TankTurret->RelativeRotation.Roll);
 
-	//FMath::FInterpTo(TurretYawRotation, CurrentYawRoation, GetWorld()->DeltaTimeSeconds)
-
-	//UE_LOG(LogTemp, Warning, TEXT("Controller: %f Tank: %f"), CurrentYawRoation, TurretYawRotation);
-
-	//TankTurret->SetRelativeRotation(NewRotation);
 }
 
 void APTank::MoveForward(float AxisValue)
 {
 	WheelCoefficient_Forward = AxisValue;
+	//W = 1 S = -1
 
-	if (AxisValue < 0)
-	{
-		BreakRatio_Left = -1 * AxisValue;
-		BreakRatio_Right = -1 * AxisValue;
-	}
-	else
-	{
-		BreakRatio_Left = 0 * AxisValue;
-		BreakRatio_Right = 0 * AxisValue;
-	}
-
+	BreakRatio_Left = 0 * AxisValue;
+	BreakRatio_Right = 0 * AxisValue;
 }
 
 void APTank::MoveRight(float AxisValue)
@@ -458,17 +544,22 @@ void APTank::CalculateThrottle()
 	TrackTorqueTransfer_Left = FMath::Clamp(WheelCoefficient_Left + WheelCoefficient_Forward, -2.0f, 2.0f);
 	TrackTorqueTransfer_Right = FMath::Clamp(WheelCoefficient_Right + WheelCoefficient_Forward, -2.0f, 2.0f);
 
+	float Increase;
 	if (UKismetMathLibrary::Max(abs(TrackTorqueTransfer_Left), abs(TrackTorqueTransfer_Right)) != 0)
 	{
-		Throttle = 1;
+		if (UseThrottle) { Increase = ThrottleIncrement; }
+		else { Throttle = 1; }
 	}
 	else
 	{
-		Throttle = -1;
+		if (UseThrottle) { Increase = -ThrottleIncrement; }
+		else { Throttle = 0; }
 
 		BreakRatio_Left = 1;
 		BreakRatio_Right = 1;
 	}
+
+	if (UseThrottle) { Throttle = FMath::Clamp(Throttle + (Increase * GetWorld()->DeltaTimeSeconds), 0.0f, 1.0f); }
 }
 
 //Main Function
@@ -483,7 +574,7 @@ void APTank::CalculateWheelVelocity()
 	float LeftInVelocity = FMath::Clamp(((TrackTorque_Left / MomentInertia) * GetWorld()->DeltaTimeSeconds) + TrackAngularVelocity_Left, -EngineSpeedLimit, EngineSpeedLimit);
 	float RightInVelocity = FMath::Clamp(((TrackTorque_Right / MomentInertia) * GetWorld()->DeltaTimeSeconds) + TrackAngularVelocity_Right, -EngineSpeedLimit, EngineSpeedLimit);
 
-	UE_LOG(LogTemp, Warning, TEXT("TestLeft: %f TestRight: %f"), LeftInVelocity, RightInVelocity);
+	//UE_LOG(LogTemp, Warning, TEXT("TestLeft: %f TestRight: %f"), LeftInVelocity, RightInVelocity);
 	
 	ApplyBrake(LeftInVelocity, BreakRatio_Left, TrackAngularVelocity_Left);
 	ApplyBrake(RightInVelocity, BreakRatio_Right, TrackAngularVelocity_Right);
