@@ -44,6 +44,10 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
 	class UStaticMeshComponent* TankTurret;
 
+	//TankTurret
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	class UStaticMeshComponent* TankCannon;
+
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
 	class UBoxComponent* BoxCollider;
 
@@ -196,7 +200,7 @@ public:
 	// Called to bind functionality to input
 	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
 
-	//virtual void BeginPlay() override;
+	virtual void BeginPlay() override;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// ENGINE Variables / Functions
@@ -248,6 +252,18 @@ public:
 
 	UPROPERTY(EditAnywhere, Category = "ENGINE VALUES")
 		float ThrottleIncrement;
+
+	UPROPERTY(EditAnywhere, Category = "ENGINE SOUNDS")
+		class USoundCue* EngineStartUp;
+
+	UPROPERTY(EditAnywhere, Category = "ENGINE SOUNDS")
+		class USoundCue* EngineIdle;
+
+	UPROPERTY(EditAnywhere, Category = "ENGINE SOUNDS")
+		class USoundCue* Engine;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "AudioComponent")
+		class UAudioComponent* EngineAudioComponent;
 
 	// Internal Varibles
 

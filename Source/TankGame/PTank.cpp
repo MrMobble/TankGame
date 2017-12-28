@@ -15,6 +15,8 @@
 #include "DrawDebugHelpers.h"
 #include "Components/BoxComponent.h"
 #include "Components/SplineComponent.h"
+#include "Sound/SoundCue.h"
+#include "Components/AudioComponent.h"
 
 //Class Includes
 #include "PWheelComponent.h"
@@ -48,9 +50,13 @@ APTank::APTank()
 	TankTurret = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("TankTurret"));
 	TankTurret->SetupAttachment(RootComponent);
 
+	//Create The Tank Turret
+	TankCannon = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("TankCannon"));
+	TankCannon->SetupAttachment(TankTurret);
+
 	//Create A Camera Boom (Pulls In Towards The Player If There Is A Collision)
 	CameraBoom = CreateDefaultSubobject<USpringArmComponent>(TEXT("CameraBoom"));
-	CameraBoom->SetupAttachment(TankTurret);
+	CameraBoom->SetupAttachment(RootComponent);
 	CameraBoom->TargetArmLength = 600.0f;
 	CameraBoom->SetRelativeLocation(FVector(0, 0, 80));
 	CameraBoom->bUsePawnControlRotation = false;
@@ -143,6 +149,15 @@ APTank::APTank()
 	RS_SproketBack = CreateDefaultSubobject<class UStaticMeshComponent>(TEXT("RS_SproketBack"));
 	RS_SproketBack->SetRelativeLocation(FVector(-215, 75, 43));
 	RS_SproketBack->SetupAttachment(RootComponent);
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Audio Components
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+	// Create an audio component, the audio component wraps the Cue, and allows us to ineract with
+	EngineAudioComponent = CreateDefaultSubobject<UAudioComponent>(TEXT("EngineAudioComp"));
+	EngineAudioComponent->bAutoActivate = true;
+	EngineAudioComponent->SetupAttachment(RootComponent);
 }
 
 void APTank::PostInitializeComponents()
@@ -151,9 +166,20 @@ void APTank::PostInitializeComponents()
 
 	CalculateMomentOfInertia();
 
+	if (EngineStartUp) { EngineAudioComponent->SetSound(EngineStartUp); }
+
 	InitWheels();
 	InitTrackSpline();
 	CreateTrackSpline();
+}
+
+void APTank::BeginPlay()
+{
+	// Call the base class  
+	Super::BeginPlay();
+
+	// Store our initial location  
+	EngineAudioComponent->Play();
 }
 
 void APTank::Tick(float DeltaTime)
@@ -186,6 +212,25 @@ void APTank::Tick(float DeltaTime)
 	FVector2D Right = ApplyDriveForceAndFriction(SuspensionComponents_Right, DriveForce_Right, TrackLinearVelocity_Right);
 	TrackFrictionTorque_Right = Right.X;
 	TrackRollingFrictionTorque_Right = Right.X;
+
+	SetTurretRotation();
+
+	//SOUND
+	if (Throttle > 0 && EngineAudioComponent)
+	{
+		if (EngineAudioComponent->Sound != Engine)
+		{
+			if (Engine) { EngineAudioComponent->SetSound(Engine); }
+		}
+		EngineAudioComponent->SetFloatParameter(FName("Throttle"), Throttle);
+	}
+	else if (TrackLinearVelocity_Left <= 0 && TrackLinearVelocity_Right <= 0 && EngineAudioComponent)
+	{
+		if (EngineAudioComponent->Sound != EngineIdle)
+		{
+			if (EngineIdle) { EngineAudioComponent->SetSound(EngineIdle); }
+		}
+	}
 }
 
 void APTank::CalculateSuspension(class UPWheelComponent* Suspension)
@@ -218,14 +263,16 @@ void APTank::CalculateSuspension(class UPWheelComponent* Suspension)
 
 		//Calculate Compression Of Suspension
 		float Compression = FMath::Clamp(SpringMacro(Suspension->S_Length, Sus_NewLength), 0.0f, 1.0f);
+
+		//This is the Suspension Force
 		float FinalCompression = Compression * Suspension->S_Stiffness;
 
-		//Calculate The Force To Apply To The Tank Suspension
+		//Calculate The Suspension Dampening
 		float ForceC = (Sus_NewLength - Suspension->S_PreviousLength) / GetWorld()->DeltaTimeSeconds;
-		float Force = Suspension->S_Dampening * (0 - ForceC);
+		float Force = Suspension->S_Dampening * ForceC;
 
-		//Set The FinalForce Value
-		Sus_Force = Sus_WorldUpVector * (FinalCompression + Force);
+		//Set The FinalForce Value Force + Dampening
+		Sus_Force = Sus_WorldUpVector * (FinalCompression - Force);
 
 		//Apply Force To The TankBody
 		TankBase->AddForceAtLocation(Sus_Force, Sus_WorldLocation, NAME_None);
@@ -481,19 +528,29 @@ void APTank::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
 void APTank::TurnAtRate(float Rate) 
 { 
 	AddControllerYawInput(Rate * BaseTurnRate * GetWorld()->GetDeltaSeconds()); 
-	//TankTurret->AddLocalRotation(FRotator(0, Rate * BaseTurnRate * GetWorld()->GetDeltaSeconds(), 0));
+	//CameraBoom->AddLocalRotation(FRotator(0, Rate * BaseTurnRate * GetWorld()->GetDeltaSeconds(), 0));
 }
-void APTank::LookUpAtRate(float Rate) { AddControllerPitchInput(Rate * BaseLookUpRate * GetWorld()->GetDeltaSeconds()); }
+void APTank::LookUpAtRate(float Rate) 
+{
+	AddControllerPitchInput(Rate * BaseLookUpRate * GetWorld()->GetDeltaSeconds()); 
+	//CameraBoom->AddLocalRotation(FRotator(-(Rate * BaseTurnRate * GetWorld()->GetDeltaSeconds()), 0, 0));
+}
 
 void APTank::SetTurretRotation()
 {
-	float CurrentYawRoation = GetControlRotation().Yaw - 90;
+	FRotator TurretRelativeRotation = TankTurret->RelativeRotation;
+	FRotator TurretWorldRotation = TankTurret->GetComponentRotation();
+	FRotator CameraRotation = CameraBoom->GetComponentRotation();
 
-	float TurretYawRotation = TankTurret->RelativeRotation.Yaw;
+	FRotator FinalRotation = UKismetMathLibrary::RInterpTo(
+		FRotator(TurretRelativeRotation.Pitch, TurretWorldRotation.Yaw, TurretRelativeRotation.Roll),
+		FRotator(TurretRelativeRotation.Pitch, CameraRotation.Yaw, TurretRelativeRotation.Roll),
+		GetWorld()->DeltaTimeSeconds,
+		1.0f);
 
-	float CalculatedYaw = FMath::FInterpTo(TurretYawRotation, CurrentYawRoation, GetWorld()->DeltaTimeSeconds, 1);
+	//TankTurret->SetRelativeRotation(FinalRotation);
 
-	FRotator NewRotation = FRotator(TankTurret->RelativeRotation.Pitch, CurrentYawRoation, TankTurret->RelativeRotation.Roll);
+	//UE_LOG(LogTemp, Warning, TEXT("CameraWorldRot: %s"), *CameraRotation.ToString());
 
 }
 
@@ -582,7 +639,7 @@ void APTank::CalculateWheelVelocity()
 	TrackLinearVelocity_Left = TrackAngularVelocity_Left * SprocketRadius_CM;
 	TrackLinearVelocity_Right = TrackAngularVelocity_Right * SprocketRadius_CM;
 
-	UE_LOG(LogTemp, Warning, TEXT("Left: %f Right: %f"), TrackLinearVelocity_Left, TrackLinearVelocity_Right);
+	//UE_LOG(LogTemp, Warning, TEXT("Left: %f Right: %f"), TrackLinearVelocity_Left, TrackLinearVelocity_Right);
 
 }
 	//BROKEN FUNCTION
@@ -643,6 +700,10 @@ FVector2D APTank::ApplyDriveForceAndFriction(TArray<class UPWheelComponent*> Sus
 			FVector CalcultedCrap;
 			CalcVelo(SusComponent[b]->S_CollisionLocation, CalcultedCrap);
 
+			//This stops the small amount of slideing the tank does.
+			if (CalcultedCrap.Size() < 5 && Throttle <= 0) { TankBase->SetLinearDamping(999999.0f); }
+			else { TankBase->SetLinearDamping(0.01f); }
+
 			FVector Velocity = (CalcultedCrap - ForwardVector(GetActorRotation()) * TrackLinearVelocity);
 			FVector RelativeTrackVelocity = VectorToPlaneProject(Velocity, SusComponent[b]->S_CollisionNormal);
 
@@ -678,7 +739,7 @@ FVector2D APTank::ApplyDriveForceAndFriction(TArray<class UPWheelComponent*> Sus
 			if ((FullStaticFrictionForce + FullKineticDriveForce).Size() < WheelLoad_N * MuStatic)
 			{
 				FullFrictionNormal = Normal(FullStaticFrictionForce);
-				FullForce = UKismetMathLibrary::ClampVectorSize(FullStaticFrictionForce + FullStaticDriveForce, 0.0f, WheelLoad_N * MuStatic) / 1.5;
+				FullForce = UKismetMathLibrary::ClampVectorSize(FullStaticFrictionForce + FullStaticDriveForce, 0.0f, WheelLoad_N * MuStatic) / 1.15;
 				//UE_LOG(LogTemp, Warning, TEXT("Static"));
 			}
 

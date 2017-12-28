@@ -19,7 +19,7 @@ UPWheelComponent::UPWheelComponent()
 
 	S_Length = 30.0f;
 	S_WheelRadius = 22.0f;
-	S_Dampening = 12000.0f;
+	S_Dampening = 10000.0f;
 	S_Stiffness = 4000000.0f;
 
 	S_IsEngaged = false;
